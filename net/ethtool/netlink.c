@@ -398,6 +398,7 @@ ethnl_default_requests[__ETHTOOL_MSG_USER_CNT] = {
 	[ETHTOOL_MSG_FEC_SET]		= &ethnl_fec_request_ops,
 	[ETHTOOL_MSG_TSINFO_GET]	= &ethnl_tsinfo_request_ops,
 	[ETHTOOL_MSG_MODULE_EEPROM_GET]	= &ethnl_module_eeprom_request_ops,
+        [ETHTOOL_MSG_MODULE_EEPROM_SET] = &ethnl_module_eeprom_request_ops,
 	[ETHTOOL_MSG_STATS_GET]		= &ethnl_stats_request_ops,
 	[ETHTOOL_MSG_PHC_VCLOCKS_GET]	= &ethnl_phc_vclocks_request_ops,
 	[ETHTOOL_MSG_MODULE_GET]	= &ethnl_module_request_ops,
@@ -1342,6 +1343,13 @@ static const struct genl_ops ethtool_genl_ops[] = {
 	},
 	{
 		.cmd	= ETHTOOL_MSG_MODULE_EEPROM_GET,
+        {
+                .cmd    = ETHTOOL_MSG_MODULE_EEPROM_SET,
+                .flags  = GENL_UNS_ADMIN_PERM,
+                .doit   = ethnl_default_set_doit,
+                .policy = ethnl_module_eeprom_set_policy,
+                .maxattr = ARRAY_SIZE(ethnl_module_eeprom_set_policy) - 1,
+        },
 		.flags  = GENL_UNS_ADMIN_PERM,
 		.doit	= ethnl_default_doit,
 		.start	= ethnl_default_start,

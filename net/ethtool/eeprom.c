@@ -86,8 +86,8 @@ err_out:
 }
 
 static int get_module_eeprom_by_page(struct net_device *dev,
-				     struct ethtool_module_eeprom *page_data,
-				     struct netlink_ext_ack *extack)
+                                     struct ethtool_module_eeprom *page_data,
+                                     struct netlink_ext_ack *extack)
 {
 	const struct ethtool_ops *ops = dev->ethtool_ops;
 
@@ -100,10 +100,28 @@ static int get_module_eeprom_by_page(struct net_device *dev,
 	if (dev->sfp_bus)
 		return sfp_get_module_eeprom_by_page(dev->sfp_bus, page_data, extack);
 
-	if (ops->get_module_eeprom_by_page)
-		return ops->get_module_eeprom_by_page(dev, page_data, extack);
+        if (ops->get_module_eeprom_by_page)
+                return ops->get_module_eeprom_by_page(dev, page_data, extack);
 
-	return -EOPNOTSUPP;
+        return -EOPNOTSUPP;
+}
+
+static int set_module_eeprom_by_page(struct net_device *dev,
+                                    const struct ethtool_module_eeprom *page_data,
+                                    struct netlink_ext_ack *extack)
+{
+       const struct ethtool_ops *ops = dev->ethtool_ops;
+
+       if (dev->ethtool->module_fw_flash_in_progress) {
+               NL_SET_ERR_MSG(extack,
+                              "Module firmware flashing is in progress");
+               return -EBUSY;
+       }
+
+       if (!ops->set_module_eeprom_by_page)
+               return -EOPNOTSUPP;
+
+       return ops->set_module_eeprom_by_page(dev, page_data, extack);
 }
 
 static int eeprom_prepare_data(const struct ethnl_req_info *req_base,
@@ -230,6 +248,8 @@ const struct ethnl_request_ops ethnl_module_eeprom_request_ops = {
 	.reply_size		= eeprom_reply_size,
 	.fill_reply		= eeprom_fill_reply,
 	.cleanup_data		= eeprom_cleanup_data,
+	.set_validate           = ethnl_set_module_eeprom_validate,
+	.set                    = ethnl_set_module_eeprom,
 };
 
 const struct nla_policy ethnl_module_eeprom_get_policy[] = {
@@ -244,3 +264,73 @@ const struct nla_policy ethnl_module_eeprom_get_policy[] = {
 		NLA_POLICY_RANGE(NLA_U8, 0, ETH_MODULE_MAX_I2C_ADDRESS),
 };
 
+const struct nla_policy ethnl_module_eeprom_set_policy[] = {
+        [ETHTOOL_A_MODULE_EEPROM_HEADER]        = NLA_POLICY_NESTED(ethnl_header_policy),
+        [ETHTOOL_A_MODULE_EEPROM_OFFSET]        =
+                NLA_POLICY_MAX(NLA_U32, ETH_MODULE_EEPROM_PAGE_LEN * 2 - 1),
+        [ETHTOOL_A_MODULE_EEPROM_LENGTH]        =
+                NLA_POLICY_RANGE(NLA_U32, 1, ETH_MODULE_EEPROM_PAGE_LEN),
+        [ETHTOOL_A_MODULE_EEPROM_PAGE]          = { .type = NLA_U8 },
+        [ETHTOOL_A_MODULE_EEPROM_BANK]          = { .type = NLA_U8 },
+        [ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS]   =
+                NLA_POLICY_RANGE(NLA_U8, 0, ETH_MODULE_MAX_I2C_ADDRESS),
+        [ETHTOOL_A_MODULE_EEPROM_DATA]          = { .type = NLA_BINARY,
+                                                    .len = ETH_MODULE_EEPROM_PAGE_LEN },
+};
+
+static int
+ethnl_set_module_eeprom_validate(struct ethnl_req_info *req_info,
+                                struct genl_info *info)
+{
+       const struct ethtool_ops *ops = req_info->dev->ethtool_ops;
+       struct nlattr **tb = info->attrs;
+
+       if (!tb[ETHTOOL_A_MODULE_EEPROM_OFFSET] ||
+           !tb[ETHTOOL_A_MODULE_EEPROM_LENGTH] ||
+           !tb[ETHTOOL_A_MODULE_EEPROM_PAGE] ||
+           !tb[ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS] ||
+           !tb[ETHTOOL_A_MODULE_EEPROM_DATA])
+               return -EINVAL;
+
+       return ops->set_module_eeprom_by_page ? 1 : -EOPNOTSUPP;
+}
+
+static int
+ethnl_set_module_eeprom(struct ethnl_req_info *req_info, struct genl_info *info)
+{
+       struct net_device *dev = req_info->dev;
+       struct nlattr **tb = info->attrs;
+       struct ethtool_module_eeprom page = {};
+       int ret;
+
+       page.offset = nla_get_u32(tb[ETHTOOL_A_MODULE_EEPROM_OFFSET]);
+       page.length = nla_get_u32(tb[ETHTOOL_A_MODULE_EEPROM_LENGTH]);
+       page.page = nla_get_u8(tb[ETHTOOL_A_MODULE_EEPROM_PAGE]);
+       page.i2c_address = nla_get_u8(tb[ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS]);
+       if (tb[ETHTOOL_A_MODULE_EEPROM_BANK])
+               page.bank = nla_get_u8(tb[ETHTOOL_A_MODULE_EEPROM_BANK]);
+
+       if (page.page && page.offset < ETH_MODULE_EEPROM_PAGE_LEN)
+               return -EINVAL;
+       if (page.offset < ETH_MODULE_EEPROM_PAGE_LEN &&
+           page.offset + page.length > ETH_MODULE_EEPROM_PAGE_LEN)
+               return -EINVAL;
+       if (page.offset + page.length > ETH_MODULE_EEPROM_PAGE_LEN * 2)
+               return -EINVAL;
+
+       if (nla_len(tb[ETHTOOL_A_MODULE_EEPROM_DATA]) != page.length)
+               return -EINVAL;
+
+       page.data = nla_data(tb[ETHTOOL_A_MODULE_EEPROM_DATA]);
+
+       rtnl_lock();
+       netdev_lock_ops(dev);
+       ret = ethnl_ops_begin(dev);
+       if (!ret)
+               ret = set_module_eeprom_by_page(dev, &page, info->extack);
+       ethnl_ops_complete(dev);
+       netdev_unlock_ops(dev);
+       rtnl_unlock();
+
+       return ret < 0 ? ret : 1;
+}

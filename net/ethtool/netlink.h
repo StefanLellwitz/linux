@@ -11,7 +11,6 @@
 struct ethnl_req_info;
 
 int ethnl_parse_header_dev_get(struct ethnl_req_info *req_info,
-			       const struct nlattr *nest, struct net *net,
 			       struct netlink_ext_ack *extack,
 			       bool require_dev);
 int ethnl_fill_reply_header(struct sk_buff *skb, struct net_device *dev,
@@ -473,6 +472,7 @@ extern const struct nla_policy ethnl_tunnel_info_get_policy[ETHTOOL_A_TUNNEL_INF
 extern const struct nla_policy ethnl_fec_get_policy[ETHTOOL_A_FEC_HEADER + 1];
 extern const struct nla_policy ethnl_fec_set_policy[ETHTOOL_A_FEC_AUTO + 1];
 extern const struct nla_policy ethnl_module_eeprom_get_policy[ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS + 1];
+extern const struct nla_policy ethnl_module_eeprom_set_policy[ETHTOOL_A_MODULE_EEPROM_DATA + 1];
 extern const struct nla_policy ethnl_stats_get_policy[ETHTOOL_A_STATS_SRC + 1];
 extern const struct nla_policy ethnl_phc_vclocks_get_policy[ETHTOOL_A_PHC_VCLOCKS_HEADER + 1];
 extern const struct nla_policy ethnl_module_get_policy[ETHTOOL_A_MODULE_HEADER + 1];

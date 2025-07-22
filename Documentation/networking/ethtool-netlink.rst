@@ -223,6 +223,7 @@ Userspace to kernel:
   ``ETHTOOL_MSG_FEC_GET``               get FEC settings
   ``ETHTOOL_MSG_FEC_SET``               set FEC settings
   ``ETHTOOL_MSG_MODULE_EEPROM_GET``     read SFP module EEPROM
+  ``ETHTOOL_MSG_MODULE_EEPROM_SET``     write SFP module EEPROM
   ``ETHTOOL_MSG_STATS_GET``             get standard statistics
   ``ETHTOOL_MSG_PHC_VCLOCKS_GET``       get PHC virtual clocks info
   ``ETHTOOL_MSG_MODULE_SET``            set transceiver module parameters
@@ -276,6 +277,7 @@ Kernel to userspace:
   ``ETHTOOL_MSG_FEC_GET_REPLY``            FEC settings
   ``ETHTOOL_MSG_FEC_NTF``                  FEC settings
   ``ETHTOOL_MSG_MODULE_EEPROM_GET_REPLY``  read SFP module EEPROM
+  ``ETHTOOL_MSG_MODULE_EEPROM_SET_REPLY``  write SFP module EEPROM
   ``ETHTOOL_MSG_STATS_GET_REPLY``          standard statistics
   ``ETHTOOL_MSG_PHC_VCLOCKS_GET_REPLY``    PHC virtual clocks info
   ``ETHTOOL_MSG_MODULE_GET_REPLY``         transceiver module parameters
@@ -1588,6 +1590,27 @@ Kernel response contents:
 
 ``ETHTOOL_A_MODULE_EEPROM_DATA`` has an attribute length equal to the amount of
 bytes driver actually read.
+
+MODULE_EEPROM_SET
+=================
+
+Write data to the module EEPROM. The same restrictions on page boundaries
+apply as for ``MODULE_EEPROM_GET`` and at most 128 bytes can be written at once.
+
+Request contents:
+
+  =======================================  ======  ==========================
+  ``ETHTOOL_A_MODULE_EEPROM_HEADER``       nested  request header
+  ``ETHTOOL_A_MODULE_EEPROM_OFFSET``       u32     offset within a page
+  ``ETHTOOL_A_MODULE_EEPROM_LENGTH``       u32     amount of bytes to write
+  ``ETHTOOL_A_MODULE_EEPROM_PAGE``         u8      page number
+  ``ETHTOOL_A_MODULE_EEPROM_BANK``         u8      bank number
+  ``ETHTOOL_A_MODULE_EEPROM_I2C_ADDRESS``  u8      page I2C address
+  ``ETHTOOL_A_MODULE_EEPROM_DATA``         binary  data to write
+  =======================================  ======  ==========================
+
+If ``ETHTOOL_A_MODULE_EEPROM_BANK`` is not specified, bank 0 is assumed.
+
 
 STATS_GET
 =========

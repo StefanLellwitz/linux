@@ -2120,6 +2120,15 @@ operations:
             - data
       dump: *module-eeprom-get-op
     -
+      name: module-eeprom-set
+      doc: Set module EEPROM data.
+
+      attribute-set: module-eeprom
+
+      do:
+        request:
+          attributes: *module-eeprom
+    -
       name: stats-get
       doc: Get statistics.
 
