@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
 /*
  * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <crypto/hash.h>
@@ -36,6 +36,7 @@ void ath11k_dp_peer_cleanup(struct ath11k *ar, int vdev_id, const u8 *addr)
 	}
 
 	ath11k_peer_rx_tid_cleanup(ar, peer);
+	peer->dp_setup_done = false;
 	crypto_free_shash(peer->tfm_mmic);
 	spin_unlock_bh(&ab->base_lock);
 }
@@ -72,7 +73,8 @@ int ath11k_dp_peer_setup(struct ath11k *ar, int vdev_id, const u8 *addr)
 	ret = ath11k_peer_rx_frag_setup(ar, addr, vdev_id);
 	if (ret) {
 		ath11k_warn(ab, "failed to setup rx defrag context\n");
-		return ret;
+		tid--;
+		goto peer_clean;
 	}
 
 	/* TODO: Setup other peer specific resource used in data path */
@@ -103,7 +105,8 @@ void ath11k_dp_srng_cleanup(struct ath11k_base *ab, struct dp_srng *ring)
 		return;
 
 	if (ring->cached)
-		kfree(ring->vaddr_unaligned);
+		dma_free_noncoherent(ab->dev, ring->size, ring->vaddr_unaligned,
+				     ring->paddr_unaligned, DMA_FROM_DEVICE);
 	else
 		dma_free_coherent(ab->dev, ring->size, ring->vaddr_unaligned,
 				  ring->paddr_unaligned);
@@ -244,14 +247,14 @@ int ath11k_dp_srng_setup(struct ath11k_base *ab, struct dp_srng *ring,
 		default:
 			cached = false;
 		}
-
-		if (cached) {
-			ring->vaddr_unaligned = kzalloc(ring->size, GFP_KERNEL);
-			ring->paddr_unaligned = virt_to_phys(ring->vaddr_unaligned);
-		}
 	}
 
-	if (!cached)
+	if (cached)
+		ring->vaddr_unaligned = dma_alloc_noncoherent(ab->dev, ring->size,
+							      &ring->paddr_unaligned,
+							      DMA_FROM_DEVICE,
+							      GFP_KERNEL);
+	else
 		ring->vaddr_unaligned = dma_alloc_coherent(ab->dev, ring->size,
 							   &ring->paddr_unaligned,
 							   GFP_KERNEL);
@@ -814,8 +817,8 @@ int ath11k_dp_service_srng(struct ath11k_base *ab,
 
 	if (ab->hw_params.ring_mask->rx_mon_status[grp_id]) {
 		for (i = 0; i < ab->num_radios; i++) {
-			for (j = 0; j < ab->hw_params.num_rxmda_per_pdev; j++) {
-				int id = i * ab->hw_params.num_rxmda_per_pdev + j;
+			for (j = 0; j < ab->hw_params.num_rxdma_per_pdev; j++) {
+				int id = i * ab->hw_params.num_rxdma_per_pdev + j;
 
 				if (ab->hw_params.ring_mask->rx_mon_status[grp_id] &
 					BIT(id)) {
@@ -837,8 +840,8 @@ int ath11k_dp_service_srng(struct ath11k_base *ab,
 		ath11k_dp_process_reo_status(ab);
 
 	for (i = 0; i < ab->num_radios; i++) {
-		for (j = 0; j < ab->hw_params.num_rxmda_per_pdev; j++) {
-			int id = i * ab->hw_params.num_rxmda_per_pdev + j;
+		for (j = 0; j < ab->hw_params.num_rxdma_per_pdev; j++) {
+			int id = i * ab->hw_params.num_rxdma_per_pdev + j;
 
 			if (ab->hw_params.ring_mask->rxdma2host[grp_id] & BIT(id)) {
 				work_done = ath11k_dp_process_rxdma_err(ab, id, budget);
@@ -872,7 +875,7 @@ void ath11k_dp_pdev_free(struct ath11k_base *ab)
 	struct ath11k *ar;
 	int i;
 
-	del_timer_sync(&ab->mon_reap_timer);
+	timer_delete_sync(&ab->mon_reap_timer);
 
 	for (i = 0; i < ab->num_radios; i++) {
 		ar = ab->pdevs[i].ar;
@@ -897,7 +900,7 @@ void ath11k_dp_pdev_pre_alloc(struct ath11k_base *ab)
 		spin_lock_init(&dp->rx_refill_buf_ring.idr_lock);
 		atomic_set(&dp->num_tx_pending, 0);
 		init_waitqueue_head(&dp->tx_empty_waitq);
-		for (j = 0; j < ab->hw_params.num_rxmda_per_pdev; j++) {
+		for (j = 0; j < ab->hw_params.num_rxdma_per_pdev; j++) {
 			idr_init(&dp->rx_mon_status_refill_ring[j].bufs_idr);
 			spin_lock_init(&dp->rx_mon_status_refill_ring[j].idr_lock);
 		}
@@ -1007,7 +1010,7 @@ void ath11k_dp_vdev_tx_attach(struct ath11k *ar, struct ath11k_vif *arvif)
 
 static int ath11k_dp_tx_pending_cleanup(int buf_id, void *skb, void *ctx)
 {
-	struct ath11k_base *ab = (struct ath11k_base *)ctx;
+	struct ath11k_base *ab = ctx;
 	struct sk_buff *msdu = skb;
 
 	dma_unmap_single(ab->dev, ATH11K_SKB_CB(msdu)->paddr, msdu->len,
@@ -1114,8 +1117,9 @@ fail_link_desc_cleanup:
 
 static void ath11k_dp_shadow_timer_handler(struct timer_list *t)
 {
-	struct ath11k_hp_update_timer *update_timer = from_timer(update_timer,
-								 t, timer);
+	struct ath11k_hp_update_timer *update_timer = timer_container_of(update_timer,
+									 t,
+									 timer);
 	struct ath11k_base *ab = update_timer->ab;
 	struct hal_srng	*srng = &ab->hal.srng_list[update_timer->ring_id];
 
@@ -1167,7 +1171,7 @@ void ath11k_dp_shadow_stop_timer(struct ath11k_base *ab,
 	if (!update_timer->init)
 		return;
 
-	del_timer_sync(&update_timer->timer);
+	timer_delete_sync(&update_timer->timer);
 }
 
 void ath11k_dp_shadow_init_timer(struct ath11k_base *ab,

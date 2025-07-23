@@ -12,7 +12,7 @@
 
 #define IS_MNT_SHARED(m) ((m)->mnt.mnt_flags & MNT_SHARED)
 #define IS_MNT_SLAVE(m) ((m)->mnt_master)
-#define IS_MNT_NEW(m)  (!(m)->mnt_ns || is_anon_ns((m)->mnt_ns))
+#define IS_MNT_NEW(m) (!(m)->mnt_ns)
 #define CLEAR_MNT_SHARED(m) ((m)->mnt.mnt_flags &= ~MNT_SHARED)
 #define IS_MNT_UNBINDABLE(m) ((m)->mnt.mnt_flags & MNT_UNBINDABLE)
 #define IS_MNT_MARKED(m) ((m)->mnt.mnt_flags & MNT_MARKED)
@@ -27,8 +27,6 @@
 #define CL_PRIVATE 		0x10
 #define CL_SHARED_TO_SLAVE	0x20
 #define CL_COPY_MNT_NS_FILE	0x40
-
-#define CL_COPY_ALL		(CL_COPY_UNBINDABLE | CL_COPY_MNT_NS_FILE)
 
 static inline void set_mnt_shared(struct mount *mnt)
 {
@@ -53,4 +51,7 @@ struct mount *copy_tree(struct mount *, struct dentry *, int);
 bool is_path_reachable(struct mount *, struct dentry *,
 			 const struct path *root);
 int count_mounts(struct mnt_namespace *ns, struct mount *mnt);
+bool propagation_would_overmount(const struct mount *from,
+				 const struct mount *to,
+				 const struct mountpoint *mp);
 #endif /* _LINUX_PNODE_H */

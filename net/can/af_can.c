@@ -171,6 +171,9 @@ static int can_create(struct net *net, struct socket *sock, int protocol,
 		/* release sk on errors */
 		sock_orphan(sk);
 		sock_put(sk);
+		sock->sk = NULL;
+	} else {
+		sock_prot_inuse_add(net, sk->sk_prot, 1);
 	}
 
  errout:
@@ -286,8 +289,8 @@ int can_send(struct sk_buff *skb, int loop)
 		netif_rx(newskb);
 
 	/* update statistics */
-	pkg_stats->tx_frames++;
-	pkg_stats->tx_frames_delta++;
+	atomic_long_inc(&pkg_stats->tx_frames);
+	atomic_long_inc(&pkg_stats->tx_frames_delta);
 
 	return 0;
 
@@ -446,7 +449,6 @@ int can_rx_register(struct net *net, struct net_device *dev, canid_t can_id,
 	struct hlist_head *rcv_list;
 	struct can_dev_rcv_lists *dev_rcv_lists;
 	struct can_rcv_lists_stats *rcv_lists_stats = net->can.rcv_lists_stats;
-	int err = 0;
 
 	/* insert new receiver  (dev,canid,mask) -> (func,data) */
 
@@ -481,7 +483,7 @@ int can_rx_register(struct net *net, struct net_device *dev, canid_t can_id,
 					       rcv_lists_stats->rcv_entries);
 	spin_unlock_bh(&net->can.rcvlists_lock);
 
-	return err;
+	return 0;
 }
 EXPORT_SYMBOL(can_rx_register);
 
@@ -647,8 +649,8 @@ static void can_receive(struct sk_buff *skb, struct net_device *dev)
 	int matches;
 
 	/* update statistics */
-	pkg_stats->rx_frames++;
-	pkg_stats->rx_frames_delta++;
+	atomic_long_inc(&pkg_stats->rx_frames);
+	atomic_long_inc(&pkg_stats->rx_frames_delta);
 
 	/* create non-zero unique skb identifier together with *skb */
 	while (!(can_skb_prv(skb)->skbcnt))
@@ -669,8 +671,8 @@ static void can_receive(struct sk_buff *skb, struct net_device *dev)
 	consume_skb(skb);
 
 	if (matches > 0) {
-		pkg_stats->matches++;
-		pkg_stats->matches_delta++;
+		atomic_long_inc(&pkg_stats->matches);
+		atomic_long_inc(&pkg_stats->matches_delta);
 	}
 }
 
@@ -823,7 +825,7 @@ static void can_pernet_exit(struct net *net)
 	if (IS_ENABLED(CONFIG_PROC_FS)) {
 		can_remove_proc(net);
 		if (stats_timer)
-			del_timer_sync(&net->can.stattimer);
+			timer_delete_sync(&net->can.stattimer);
 	}
 
 	kfree(net->can.rx_alldev_list);
@@ -866,6 +868,8 @@ static __init int can_init(void)
 	/* check for correct padding to be able to use the structs similarly */
 	BUILD_BUG_ON(offsetof(struct can_frame, len) !=
 		     offsetof(struct canfd_frame, len) ||
+		     offsetof(struct can_frame, len) !=
+		     offsetof(struct canxl_frame, flags) ||
 		     offsetof(struct can_frame, data) !=
 		     offsetof(struct canfd_frame, data));
 

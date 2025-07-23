@@ -1677,7 +1677,7 @@ static void ath6kl_init_get_fwcaps(struct ath6kl *ar, char *buf, size_t buf_len)
 
 			/* add "..." to the end of string */
 			trunc_len = strlen(trunc) + 1;
-			strncpy(buf + buf_len - trunc_len, trunc, trunc_len);
+			memcpy(buf + buf_len - trunc_len, trunc, trunc_len);
 
 			return;
 		}
@@ -1915,7 +1915,7 @@ void ath6kl_stop_txrx(struct ath6kl *ar)
 	clear_bit(WMI_READY, &ar->flag);
 
 	if (ar->fw_recovery.enable)
-		del_timer_sync(&ar->fw_recovery.hb_timer);
+		timer_delete_sync(&ar->fw_recovery.hb_timer);
 
 	/*
 	 * After wmi_shudown all WMI events will be dropped. We
